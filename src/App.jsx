@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import Search from './components/Search.jsx'
 import Spinner from './components/Spinner.jsx'
 import MovieCard from './components/MovieCard.jsx'
+import { useDebounce } from 'react-use';
+import { updateSearchCount } from './appwrite.js';
 
 const API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -17,30 +19,43 @@ const API_OPTIONS = {
 
 const App = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [errorMessage, setErrorMessage] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
   const [movieList, setMovieList] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
 
-
+  // Debounce the search term to prevent unnecessary API calls
+  useDebounce(() => 
+    setDebouncedSearchTerm(searchTerm), 500, [searchTerm]);
+  
   const fetchMovies = async (query = '') => {
     setIsLoading(true);
     setErrorMessage('');
 
     try {
-      const endpoint = query ? `${API_BASE_URL}/search/movie?query=${query}` : `${API_BASE_URL}/discover/movie?sort_by=popularity.desc`;
+      const endpoint = query
+        ? `${API_BASE_URL}/search/movie?query=${encodeURIComponent(query)}`
+        : `${API_BASE_URL}/discover/movie?sort_by=popularity.desc`;
+
       const response = await fetch(endpoint, API_OPTIONS);
-      if (!response.ok) {
+
+      if(!response.ok) {
         throw new Error('Failed to fetch movies');
       }
 
       const data = await response.json();
-      console.log(data);
 
-      if (data.Response === 'False') {
-        throw new Error(data.Error || 'Failed to fetch movies');
+      if(data.Response === 'False') {
+        setErrorMessage(data.Error || 'Failed to fetch movies');
+        setMovieList([]);
+        return;
       }
 
       setMovieList(data.results || []);
+      
+      if(data.results.length > 0) {
+        await updateSearchCount(query, data.results[0]);
+      }
 
     } catch (error) {
       console.error(`Error fetching movies: ${error}`);
@@ -51,8 +66,8 @@ const App = () => {
   }
 
   useEffect(() => {
-    fetchMovies(searchTerm);
-  }, [searchTerm]);
+    fetchMovies(debouncedSearchTerm);
+  }, [debouncedSearchTerm]);
 
   return (
     <main>
